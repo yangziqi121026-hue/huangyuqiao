@@ -69,6 +69,16 @@ if run_btn:
     c2.metric("风险等级", result["risk_level"])
     c3.metric("数据可信度", result["data_quality"].get("overall", "未知"))
 
+    # 资金面关键指标（结构化字段，缺失统一显示"不足以判断"）
+    cap = (result.get("market_data") or {}).get("capital_flow") or {}
+    _amt = cap.get("amount_latest")
+    _tr = cap.get("turnover_rate_latest")
+    _mf = cap.get("main_fund_5d_sum")
+    d1, d2, d3 = st.columns(3)
+    d1.metric("最新成交额", f"{round(_amt / 1e8, 2)} 亿元" if isinstance(_amt, (int, float)) else "不足以判断")
+    d2.metric("最新换手率", f"{_tr}%" if isinstance(_tr, (int, float)) else "不足以判断")
+    d3.metric("近5日主力净流入", f"{round(_mf / 1e8, 2)} 亿元" if isinstance(_mf, (int, float)) else "不足以判断")
+
     if result["conflict"].get("conflict"):
         st.warning(result["conflict"].get("message", "基本面与技术面存在冲突，已保留分歧。"))
 

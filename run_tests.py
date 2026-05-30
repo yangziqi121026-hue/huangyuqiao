@@ -16,6 +16,14 @@ import os
 import sys
 import unittest
 
+# 让输出在任意控制台编码（如 Windows GBK）下都不崩——pre-commit 钩子里没有
+# 设 PYTHONUTF8 时，打印 ✅/❌ 会触发 UnicodeEncodeError。优先切到 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # Python 3.7+
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TESTS_DIR = os.path.join(ROOT, "tests")
 

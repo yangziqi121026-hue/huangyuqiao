@@ -565,6 +565,69 @@ def get_capital_flow(symbol: str, hist_df: Optional[pd.DataFrame] = None) -> Dic
 # D. 消息面
 # =====================================================
 
+_NEWS_DT_FORMATS = (
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+    "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
+)
+
+
+def _parse_news_dt(s) -> Optional[datetime]:
+    """尽力解析新闻发布时间，解析不了返回 None（不误杀，后续保留该条）。"""
+    if not s:
+        return None
+    txt = str(s).strip()
+    for fmt in _NEWS_DT_FORMATS:
+        try:
+            return datetime.strptime(txt, fmt)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _norm_title(t) -> str:
+    """标题标准化用于去重：去空白、转小写。"""
+    if not t:
+        return ""
+    return re.sub(r"\s+", "", str(t)).lower()
+
+
+def _dedup_and_filter_news(
+    items: List[Dict], now: Optional[datetime] = None, max_age_days: int = 30, limit: int = 12,
+) -> List[Dict]:
+    """对新闻做：① 按时间降序（新在前、无日期排后）② 时效过滤（早于 cutoff 丢弃，解析不了保留）
+    ③ 标题去重（保留最新一条）④ 截断到 limit。
+
+    纯计算、可单测、不联网。若时效过滤后为空（新闻都很旧），退回按时间降序的全量，
+    避免消息面整段空白——但顺序仍是新在前，分析师可据日期自行判断时效。
+    """
+    if not items:
+        return []
+    now = now or datetime.now()
+    cutoff = now - timedelta(days=max_age_days)
+
+    def _key(it):
+        dt = _parse_news_dt(it.get("date"))
+        return (dt is not None, dt or datetime.min)
+
+    ordered = sorted(items, key=_key, reverse=True)
+    fresh = [it for it in ordered
+             if (_parse_news_dt(it.get("date")) is None
+                 or _parse_news_dt(it.get("date")) >= cutoff)]
+    base = fresh if fresh else ordered
+
+    seen = set()
+    result: List[Dict] = []
+    for it in base:
+        key = _norm_title(it.get("title"))
+        if key and key in seen:
+            continue
+        seen.add(key)
+        result.append(it)
+        if len(result) >= limit:
+            break
+    return result
+
+
 def get_news(symbol: str) -> List[Dict]:
     symbol = _normalize_symbol(symbol)
     ak = _try_import_akshare()
@@ -584,7 +647,7 @@ def get_news(symbol: str) -> List[Dict]:
     col_link = _first_existing(df, ["新闻链接", "链接", "url"])
 
     out: List[Dict] = []
-    for _, row in df.head(15).iterrows():
+    for _, row in df.head(50).iterrows():
         title = _str_or_none(row.get(col_title)) if col_title else None
         content = _str_or_none(row.get(col_content)) if col_content else None
         out.append({
@@ -595,6 +658,8 @@ def get_news(symbol: str) -> List[Dict]:
             "url": (_str_or_none(row.get(col_link)) if col_link else "") or "",
             "is_mock": False,
         })
+    # 去重（标题）+ 时效过滤（默认近30天）+ 按时间降序，避免重复/过期新闻干扰消息面判断
+    out = _dedup_and_filter_news(out, max_age_days=30, limit=12)
     return out or _mock_news(symbol, "解析新闻为空")
 
 
