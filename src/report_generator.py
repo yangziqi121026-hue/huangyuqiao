@@ -15,7 +15,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-from .config import ALLOWED_CONCLUSIONS, REPORTS_DIR
+from .config import ALLOWED_CONCLUSIONS, MODEL_NAME, REPORTS_DIR
+from .analysis.metadata import (
+    get_financial_period,
+    get_latest_trade_day,
+    summarize_sources,
+)
 from .analysis.data_quality import missing_label
 
 # 禁止出现在报告里的交易指令字样（安全网，命中即软化）
@@ -146,6 +151,10 @@ def build_final_report(
         "、".join(insufficient) if insufficient else "无（各维度数据基本可用）"
     )
 
+    latest_trade_day = get_latest_trade_day(market_data) or "不足以判断"
+    financial_period = get_financial_period(market_data) or "不足以判断"
+    source_summary = summarize_sources(market_data)
+
     md = f"""# A股个股投研分析报告（只读 / 研究用途）
 
 > 本报告由 AI 多智能体只读分析系统生成，**仅供研究学习，不构成投资建议，不保证收益，不含任何买卖指令，不执行任何交易**。
@@ -156,7 +165,11 @@ def build_final_report(
 - 股票名称：{market_data.get('name', '')}
 - 当前价：{missing_label(market_data.get('current_price'))} {market_data.get('currency', '')}
 - 数据周期：{period_zh}　复权方式：{adjust_zh}
-- **数据来源**：{('；'.join(sources))}
+- **分析模型**：{MODEL_NAME}（LLM；多智能体编排，结论非交易指令）
+- **行情最新交易日**：{latest_trade_day}
+- **财报期**：{financial_period}
+- **数据来源摘要**：{source_summary}
+- **数据来源（接口级）**：{('；'.join(sources))}
 - **数据抓取时间**：{fetched_at}
 - 报告生成时间：{gen_at}
 {conflict_block}

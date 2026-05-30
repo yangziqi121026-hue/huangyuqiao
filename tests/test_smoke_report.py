@@ -135,12 +135,33 @@ class TestSmokeBuildFinalReport(unittest.TestCase):
                 )
 
     def test_must_contain_data_source_line(self):
-        self.assertIn("数据来源", self.md)
+        self.assertIn("数据来源摘要", self.md)
+        self.assertIn("数据来源（接口级）", self.md)
         self.assertIn("AKShare", self.md)
 
-    def test_must_contain_fetched_at(self):
+    def test_must_contain_fetched_at_with_valid_format(self):
+        import re
         self.assertIn("数据抓取时间", self.md)
-        self.assertIn("2026-05-30 21:00:00", self.md)
+        # 必须是 YYYY-MM-DD HH:MM:SS 格式（非空字符串、非"不足以判断"）
+        # 字段名外可能有 ** ** markdown 加粗，用宽松匹配
+        m = re.search(r"数据抓取时间[^\n]*?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", self.md)
+        self.assertIsNotNone(m, "数据抓取时间字段缺失或格式不合法")
+        self.assertEqual(m.group(1), "2026-05-30 21:00:00")
+
+    def test_must_contain_analysis_model_field(self):
+        # 头部必须暴露生成本报告的 LLM 模型名，否则结论无法溯源
+        self.assertIn("分析模型", self.md)
+        import re
+        m = re.search(r"分析模型[^\n]*[：:]\s*(\S+)", self.md)
+        self.assertIsNotNone(m)
+        # 模型名应非空、非"不足以判断"
+        self.assertNotIn("不足以判断", m.group(0))
+
+    def test_must_contain_latest_trade_day(self):
+        self.assertIn("行情最新交易日", self.md)
+
+    def test_must_contain_financial_period(self):
+        self.assertIn("财报期", self.md)
 
     def test_must_contain_disclaimer(self):
         self.assertIn("不构成投资建议", self.md)

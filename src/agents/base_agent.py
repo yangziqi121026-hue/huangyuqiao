@@ -11,6 +11,11 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from ..analysis.data_quality import missing_label
+from ..analysis.metadata import (
+    get_financial_period,
+    get_latest_trade_day,
+    summarize_sources,
+)
 from ..llm_client import LLMClient
 
 # 所有 agent 共享的硬性口径，注入到 system prompt 末尾
@@ -49,6 +54,9 @@ class BaseAgent:
     @staticmethod
     def _header(market_data: Dict) -> str:
         info = market_data.get("info") or {}
+        latest_trade_day = get_latest_trade_day(market_data) or "不足以判断"
+        financial_period = get_financial_period(market_data) or "不足以判断"
+        source_summary = summarize_sources(market_data)
         return (
             f"市场：{market_data.get('market', '')}\n"
             f"代码：{market_data.get('symbol', '')}\n"
@@ -56,7 +64,10 @@ class BaseAgent:
             f"行业：{missing_label(info.get('industry'))}\n"
             f"主营业务：{missing_label(info.get('main_business'))}\n"
             f"当前价：{missing_label(market_data.get('current_price'))}\n"
-            f"数据抓取时间：{market_data.get('fetched_at', '')}"
+            f"数据抓取时间：{market_data.get('fetched_at', '')}\n"
+            f"行情最新交易日：{latest_trade_day}\n"
+            f"财报期：{financial_period}\n"
+            f"数据来源摘要：{source_summary}"
         )
 
     @staticmethod
