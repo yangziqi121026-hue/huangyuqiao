@@ -142,11 +142,21 @@ def run_analysis(
     }.get(depth, {"max_tokens": 1300, "temperature": 0.4})
 
     agent_outputs: Dict[str, str] = {
-        "_conflict": conflict,        # 供投资委员会读取
+        "_conflict": conflict,        # 供投资委员会读取（委员会前会用 LLM 定性方向重算并覆盖）
         "_dq": dq_assessment,
     }
     for stage_id, agent in pipeline:
         _emit(stage_id)
+        # 4.5) 在投资委员会汇总「之前」，用已产出的基本面/技术面定性方向重算冲突判定
+        #      （LLM 优先、确定性指标兜底）。这样委员会拿到的冲突口径与最终"综合摘要"
+        #      完全一致，消除"委员会正文说方向冲突、综合摘要却说不冲突"的两层打架。
+        if stage_id == "investment_committee":
+            conflict = reconcile_conflict(
+                conflict,
+                agent_outputs.get("fundamental_analyst", ""),
+                agent_outputs.get("technical_analyst", ""),
+            )
+            agent_outputs["_conflict"] = conflict
         agent.DEFAULT_MAX_TOKENS = depth_cfg["max_tokens"]
         agent.DEFAULT_TEMPERATURE = depth_cfg["temperature"]
         try:
@@ -154,14 +164,6 @@ def run_analysis(
         except Exception as e:
             text = f"> {agent.role} 执行失败：{e}"
         agent_outputs[stage_id] = text or ""
-
-    # 4.5) 用各分析师(LLM)的定性方向重算冲突判定（LLM 优先、确定性指标兜底），
-    #      保证最终"综合摘要"的方向/冲突与正文一致，不再两层口径打架。
-    conflict = reconcile_conflict(
-        conflict,
-        agent_outputs.get("fundamental_analyst", ""),
-        agent_outputs.get("technical_analyst", ""),
-    )
 
     # 5) 报告
     _emit("final_report")
