@@ -22,6 +22,9 @@ from .analysis.data_quality import missing_label
 _FORBIDDEN = [
     "必须买入", "必须卖出", "建议买入", "建议卖出", "立即买入", "立即卖出",
     "满仓", "清仓", "加仓", "减仓", "买入信号", "卖出信号",
+    "做多", "做空", "强烈推荐", "立即满仓", "梭哈", "逢低买入", "逢高减持",
+    "BUY", "SELL", "建议入场价", "止损位", "止盈位", "建议止损", "建议止盈",
+    "目标买价", "目标卖价",
 ]
 
 
@@ -37,9 +40,14 @@ def _extract_field(text: str, key: str) -> str:
 
 
 def extract_conclusion(committee_text: str) -> str:
-    """从投资委员会输出抽取最终结论，强制落到 4 个合法标签之一。"""
+    """从投资委员会输出抽取最终结论，强制落到 4 个合法标签之一。
+
+    多标签命中时取最严格的：ALLOWED_CONCLUSIONS 已按严格度由低到高排列
+    （观察 < 谨慎关注 < 暂不参与 < 高风险），从右往左遍历即可让最严先返回。
+    避免 LLM 同时写出多个标签时被最宽松的"观察"覆盖。
+    """
     val = _extract_field(committee_text, "最终结论")
-    for label in ALLOWED_CONCLUSIONS:
+    for label in reversed(ALLOWED_CONCLUSIONS):
         if label in val:
             return label
     # 兜底：抽不到合法标签时返回最保守的"观察"
@@ -55,11 +63,23 @@ def extract_risk_level(committee_text: str) -> str:
 
 
 def _sanitize(text: str) -> str:
-    """安全网：把任何遗漏的交易指令字样软化为研究口径。"""
+    """安全网：把任何遗漏的交易指令字样软化为研究口径。
+
+    两阶段替换，保证幂等且不会嵌套包裹：
+    1. 长词优先，将每个命中的禁词换成不可见占位符（占位符不可能被任何禁词再次命中）。
+    2. 占位符统一展开为「（已移除交易指令：原词）」。
+    这样既能避免"满仓"先于"立即满仓"命中（长词优先），
+    也能避免被包裹后的子串（如"满仓"在"（已移除交易指令：立即满仓）"里）被二次包裹。
+    """
     out = text or ""
-    for w in _FORBIDDEN:
+    pending: list[tuple[str, str]] = []
+    for i, w in enumerate(sorted(_FORBIDDEN, key=len, reverse=True)):
         if w in out:
-            out = out.replace(w, f"（已移除交易指令：{w}）")
+            placeholder = f"\x00__SANITIZED_{i}__\x00"
+            pending.append((placeholder, f"（已移除交易指令：{w}）"))
+            out = out.replace(w, placeholder)
+    for placeholder, wrapped in pending:
+        out = out.replace(placeholder, wrapped)
     return out
 
 
@@ -197,7 +217,9 @@ def build_final_report(
 本报告为 AI 自动生成的只读研究材料，所用数据来自 AKShare 公开接口，可能存在滞后、缺失或错误。
 报告不构成任何投资、申购、买卖建议，不预测涨跌，不承诺收益。投资有风险，决策请独立判断并自担风险。
 """
-    return _sanitize(md)
+    # 各 agent 输出已在模板插入时各自 sanitize 过；模板固定文字不含任何 _FORBIDDEN 词。
+    # 不再对整个 md 二次 sanitize，避免把"（已移除交易指令：XX）"里的子串再次包裹成嵌套标记。
+    return md
 
 
 def save_report_to_file(symbol: str, content: str) -> Path:

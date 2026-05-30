@@ -52,6 +52,23 @@ class TestExtractConclusion(unittest.TestCase):
         # "买入" 不是合法四档之一 → 回退"观察"
         self.assertEqual(extract_conclusion("最终结论：买入"), "观察")
 
+    def test_multi_label_returns_strictest(self):
+        # LLM 同时给出多个合法标签时，必须返回最保守（严格度最高）的那个，
+        # 避免按 ALLOWED_CONCLUSIONS 自然顺序遍历时被"观察"吞掉
+        self.assertEqual(
+            extract_conclusion("最终结论：高风险，建议观察"), "高风险"
+        )
+        self.assertEqual(
+            extract_conclusion("最终结论：观察 / 暂不参与"), "暂不参与"
+        )
+        self.assertEqual(
+            extract_conclusion("最终结论：谨慎关注 → 高风险"), "高风险"
+        )
+        # 严格度顺序：观察 < 谨慎关注 < 暂不参与 < 高风险
+        self.assertEqual(
+            extract_conclusion("最终结论：谨慎关注、暂不参与"), "暂不参与"
+        )
+
 
 class TestExtractRiskLevel(unittest.TestCase):
     def test_levels(self):
