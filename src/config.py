@@ -67,6 +67,14 @@ PERIOD_MAP = {
     "月线": "monthly",
 }
 
+# ---------- AKShare 抓取层缓存 + 限频 ----------
+# 按 (symbol, dimension, fetch_date_YYYY-MM-DD) 缓存到 SQLite，隔天自然失效。
+# 仅缓存变化慢的维度：info / financials / news；history / capital_flow 现抓。
+CACHE_ENABLED = _get_bool("CACHE_ENABLED", default=True)
+CACHE_DB_PATH = DATA_DIR / "cache.db"
+# 抓取间隔（秒），防止对 AKShare 接口短时间连续打。仅在缓存未命中走真实调用时生效。
+AKSHARE_FETCH_SLEEP_SEC = float(os.getenv("AKSHARE_FETCH_SLEEP_SEC", "0.3"))
+
 
 def get_settings_summary() -> dict:
     return {
@@ -78,4 +86,7 @@ def get_settings_summary() -> dict:
         "enable_trading": ENABLE_TRADING,
         "enable_live": ENABLE_LIVE,
         "only_market": ONLY_MARKET,
+        "cache_enabled": CACHE_ENABLED,
+        "cache_db_path": str(CACHE_DB_PATH),
+        "akshare_fetch_sleep_sec": AKSHARE_FETCH_SLEEP_SEC,
     }

@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+from . import config
+from .cache import get_cache
 
 # === pandas-3 / pyarrow 兼容性补丁（必须在 import akshare 之前生效）===
 try:
@@ -693,8 +697,9 @@ def fetch_market_data(
             "errors": [f"股票代码不合法或非沪深 A 股：{symbol}（仅支持 6 位数字、6/0/3 开头）"],
         }
 
-    info = _safe_call(get_stock_info, symbol, default={}, errors=errors, label="基础信息")
+    info = _cached_safe_call(get_stock_info, symbol, "info", default={}, errors=errors, label="基础信息")
 
+    # 行情按日变化大，不缓存（避免拿到当日未收盘的阉割数据）
     history = _safe_call(get_history, symbol, start_date, end_date, period, adjust,
                          default=pd.DataFrame(), errors=errors, label="历史行情")
     if history is None or history.empty:
@@ -704,10 +709,11 @@ def fetch_market_data(
         dq["price_data"] = "mock"
         errors.append("行情数据来源为 mock，请审慎对待")
 
-    financials = _safe_call(get_financials, symbol, default={}, errors=errors, label="财务")
+    financials = _cached_safe_call(get_financials, symbol, "financials", default={}, errors=errors, label="财务")
     if not financials or (not financials.get("snapshot") and not financials.get("indicators_latest")):
         dq["financial_data"] = "partial"
 
+    # 资金面盘后才稳定，不缓存（避免缓存盘中实时快照）
     capital = _safe_call(get_capital_flow, symbol, history, default={}, errors=errors, label="资金面")
     if not capital or not capital.get("_sources"):
         dq["capital_data"] = "failed"
@@ -715,7 +721,7 @@ def fetch_market_data(
         # 主力资金流缺失（仅靠日K成交额/换手率兜底）时如实标 partial
         dq["capital_data"] = "partial"
 
-    news = _safe_call(get_news, symbol, default=[], errors=errors, label="新闻")
+    news = _cached_safe_call(get_news, symbol, "news", default=[], errors=errors, label="新闻")
     if not news:
         dq["news_data"] = "partial"
     elif any(n.get("is_mock") for n in news):
@@ -747,12 +753,41 @@ def fetch_market_data(
 
 
 def _safe_call(fn, *args, default=None, errors=None, label=""):
+    # 限频：任何 AKShare 真实调用前先 sleep，防止短时间内对接口连续打。
+    # 缓存命中走 _cached_safe_call 短路返回，不会触发 _safe_call，因此 sleep 不被命中复跑触发。
+    if config.AKSHARE_FETCH_SLEEP_SEC > 0:
+        time.sleep(config.AKSHARE_FETCH_SLEEP_SEC)
     try:
         return fn(*args)
     except Exception as e:
         if errors is not None:
             errors.append(f"{label}获取失败：{e}")
         return default
+
+
+def _cached_safe_call(fn, symbol, dim, default=None, errors=None, label=""):
+    """带 SQLite 缓存的 _safe_call。
+
+    命中：直接返回缓存 payload，跳过 _safe_call（不触发 sleep）。
+    未命中：走 _safe_call 抓真实数据，结果非空且非 default 时 put 入缓存。
+    缓存层任何异常都不影响主流程（fail-open）。
+    """
+    if config.CACHE_ENABLED:
+        try:
+            cache = get_cache(config.CACHE_DB_PATH)
+            hit = cache.get(symbol, dim)
+            if hit is not None:
+                return hit
+        except Exception:
+            pass  # 缓存读失败降级走真抓
+    result = _safe_call(fn, symbol, default=default, errors=errors, label=label)
+    if config.CACHE_ENABLED and result is not None and result != default:
+        try:
+            cache = get_cache(config.CACHE_DB_PATH)
+            cache.put(symbol, dim, result)
+        except Exception:
+            pass  # 缓存写失败不影响返回
+    return result
 
 
 # =====================================================

@@ -29,11 +29,18 @@ def main():
     parser.add_argument("--start", default="", help="开始日期 YYYY-MM-DD")
     parser.add_argument("--end", default="", help="结束日期 YYYY-MM-DD")
     parser.add_argument("--no-save", action="store_true", help="不落地 reports/")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="禁用 AKShare 缓存（强制重抓 info/financials/news）")
     args = parser.parse_args()
+
+    if args.no_cache:
+        # 仅本次进程禁用，不写 .env
+        config.CACHE_ENABLED = False
 
     s = config.get_settings_summary()
     print(f"[配置] model={s['model']} mock_mode={s['mock_mode']} 只读={s['only_readonly']} "
-          f"下单={s['enable_trading']} live={s['enable_live']} 市场={s['only_market']}")
+          f"下单={s['enable_trading']} live={s['enable_live']} 市场={s['only_market']} "
+          f"cache={s['cache_enabled']}")
     if s["mock_mode"]:
         print("[提示] 当前为 mock 模式（无 API Key 或未联网），结论仅用于流程验证。")
 

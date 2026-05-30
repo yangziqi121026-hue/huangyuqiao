@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 data/*.json
+data/*.db
+data/*.db-journal
 reports/*.md
 .venv/
 venv/
