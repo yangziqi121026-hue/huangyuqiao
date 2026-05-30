@@ -79,7 +79,17 @@ def get_latest_trade_day(market_data: Dict) -> str:
 
 
 def get_financial_period(market_data: Dict) -> str:
-    """从 financials 抽取最新财报期（如 '2026Q1'）。缺失返回空串。"""
+    """从 financials 抽取最新财报期，格式化为 YYYY-MM-DD。
+
+    AKShare 的 latest_period 一般是 8 位数字（'20260331' / int 20260331），
+    转成 '2026-03-31' 提升可读性。若已是带横线日期、季度标记（'2026Q1'）
+    或其它格式，原样返回；缺失返回空串。
+    """
     fin = market_data.get("financials") or {}
     val = fin.get("latest_period")
-    return str(val) if val else ""
+    if val is None or val == "":
+        return ""
+    s = str(val).strip()
+    if re.fullmatch(r"\d{8}", s):
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s

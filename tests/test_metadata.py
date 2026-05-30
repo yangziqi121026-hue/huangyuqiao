@@ -129,9 +129,32 @@ class TestGetLatestTradeDay(unittest.TestCase):
 
 
 class TestGetFinancialPeriod(unittest.TestCase):
-    def test_extract_period(self):
+    def test_format_yyyymmdd_string(self):
+        # AKShare 主要形态：8 位数字串转 YYYY-MM-DD
+        md = {"financials": {"latest_period": "20260331"}}
+        self.assertEqual(get_financial_period(md), "2026-03-31")
+
+    def test_format_yyyymmdd_int(self):
+        # int 类型也应能正确格式化
+        md = {"financials": {"latest_period": 20260930}}
+        self.assertEqual(get_financial_period(md), "2026-09-30")
+
+    def test_already_dashed_kept(self):
+        md = {"financials": {"latest_period": "2026-03-31"}}
+        self.assertEqual(get_financial_period(md), "2026-03-31")
+
+    def test_quarter_format_kept(self):
         md = {"financials": {"latest_period": "2026Q1"}}
         self.assertEqual(get_financial_period(md), "2026Q1")
+
+    def test_non_8digit_other_format_kept(self):
+        # 任何无法识别的格式原样返回，不强行转换
+        md = {"financials": {"latest_period": "2026年一季报"}}
+        self.assertEqual(get_financial_period(md), "2026年一季报")
+
+    def test_extra_whitespace_stripped(self):
+        md = {"financials": {"latest_period": "  20261231  "}}
+        self.assertEqual(get_financial_period(md), "2026-12-31")
 
     def test_missing_returns_empty(self):
         self.assertEqual(get_financial_period({"financials": {}}), "")
@@ -139,6 +162,9 @@ class TestGetFinancialPeriod(unittest.TestCase):
 
     def test_none_returns_empty(self):
         self.assertEqual(get_financial_period({"financials": {"latest_period": None}}), "")
+
+    def test_empty_string_returns_empty(self):
+        self.assertEqual(get_financial_period({"financials": {"latest_period": ""}}), "")
 
 
 if __name__ == "__main__":
