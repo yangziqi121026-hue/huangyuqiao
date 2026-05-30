@@ -1,0 +1,36 @@
+#!/bin/sh
+# pre-commit 钩子：提交前自动跑只读分析的安全/逻辑回归测试。
+#
+# 这些测试不联网、不调用 LLM、不依赖 akshare，只验证硬约束：
+#   - 投资委员会只落「观察/谨慎关注/暂不参与/高风险」四档（非法值回退「观察」）
+#   - 任何买卖指令字样被禁词安全网软化
+#   - 数据缺失统一标「不足以判断」
+#   - 基本面/技术面方向冲突要显式提示（以各分析师 LLM 定性结论为准）
+#   - 技术指标 / 资金面成交额换手率兜底的纯计算正确
+#
+# 任一用例失败 → 阻断本次提交。确需跳过：git commit --no-verify
+#
+# 启用方式（克隆后执行一次）：git config core.hooksPath hooks
+
+echo "[pre-commit] 跑只读分析回归测试（不联网 / 不调 LLM）..."
+
+# 优先用 Windows 的 py 启动器，避开 Microsoft Store 的 python stub
+if command -v py >/dev/null 2>&1; then
+    py -3 run_tests.py -q
+    rc=$?
+elif command -v python3 >/dev/null 2>&1; then
+    python3 run_tests.py -q
+    rc=$?
+else
+    python run_tests.py -q
+    rc=$?
+fi
+
+if [ "$rc" -ne 0 ]; then
+    echo "[pre-commit] FAILED：测试未通过（exit $rc），已阻断提交。"
+    echo "[pre-commit] 修复后重新 commit；确需跳过请用 git commit --no-verify。"
+    exit 1
+fi
+
+echo "[pre-commit] OK：测试全部通过，允许提交。"
+exit 0

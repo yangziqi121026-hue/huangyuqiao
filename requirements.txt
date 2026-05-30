@@ -1,0 +1,14 @@
+# A股只读投研分析 Agent 依赖
+# 核心数据与计算
+akshare>=1.16.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# LLM（OpenAI 兼容协议，可对接 DeepSeek / Qwen / 智谱等）
+openai>=1.30.0
+
+# 环境变量
+python-dotenv>=1.0.0
+
+# 可选：Streamlit UI（只跑 CLI 可不装）
+streamlit>=1.30.0
