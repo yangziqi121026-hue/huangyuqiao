@@ -241,3 +241,139 @@ def save_report_to_file(symbol: str, content: str) -> Path:
     path = REPORTS_DIR / f"A股_{safe_symbol}_{ts}.md"
     path.write_text(content, encoding="utf-8")
     return path
+
+
+# =====================================================
+# 批量分析汇总
+# =====================================================
+
+# 结论严格度由高到低：高风险 → 暂不参与 → 谨慎关注 → 观察。汇总按此排序。
+_STRICTNESS_ORDER = {"高风险": 0, "暂不参与": 1, "谨慎关注": 2, "观察": 3}
+
+
+def _conclusion_sort_key(item: Dict) -> tuple:
+    conc = item.get("conclusion", "观察")
+    return (_STRICTNESS_ORDER.get(conc, 99), item.get("symbol", ""))
+
+
+def _conflict_label(item: Dict) -> str:
+    if item.get("conflict"):
+        return "是（已保留分歧）"
+    if item.get("insufficient"):
+        return "数据不足"
+    return "否"
+
+
+def build_batch_summary(
+    results: List[Dict],
+    started_at: str,
+    finished_at: str,
+    duration_sec: float,
+    cache_enabled: bool,
+) -> str:
+    """生成批量分析的汇总 Markdown。
+
+    results 中每个 item 必须含：
+      symbol, ok, error (失败时);
+    ok=True 时还需：
+      name, conclusion, risk_level, fundamental_bias, technical_bias,
+      conflict, insufficient, latest_trade_day, report_path (可选).
+    """
+    ok_items = [r for r in results if r.get("ok")]
+    fail_items = [r for r in results if not r.get("ok")]
+    ok_sorted = sorted(ok_items, key=_conclusion_sort_key)
+
+    # ---------- 表格：结论汇总 ----------
+    rows = ["| 代码 | 名称 | 最终结论 | 风险等级 | 基本面方向 | 技术面方向 | 是否冲突 | 行情最新日 | 报告 |",
+            "|------|------|---------|---------|-----------|-----------|---------|----------|------|"]
+    for it in ok_sorted:
+        link = ""
+        rp = it.get("report_path") or ""
+        if rp:
+            # 用相对文件名展示，方便用户在文件管理器找
+            link = f"[详情]({Path(rp).name})"
+        rows.append(
+            f"| {it.get('symbol', '')} "
+            f"| {it.get('name', '')} "
+            f"| **{it.get('conclusion', '观察')}** "
+            f"| {it.get('risk_level', '不足以判断')} "
+            f"| {it.get('fundamental_bias', '不足以判断')} "
+            f"| {it.get('technical_bias', '不足以判断')} "
+            f"| {_conflict_label(it)} "
+            f"| {it.get('latest_trade_day', '不足以判断')} "
+            f"| {link} |"
+        )
+    table_md = "\n".join(rows)
+
+    # ---------- 按结论分组 ----------
+    groups: Dict[str, List[Dict]] = {k: [] for k in _STRICTNESS_ORDER}
+    for it in ok_sorted:
+        c = it.get("conclusion", "观察")
+        groups.setdefault(c, []).append(it)
+
+    group_lines: List[str] = []
+    icon_map = {"高风险": "■", "暂不参与": "▲", "谨慎关注": "●", "观察": "○"}
+    for label in ("高风险", "暂不参与", "谨慎关注", "观察"):
+        items = groups.get(label, [])
+        group_lines.append(f"### {icon_map[label]} {label} ({len(items)})")
+        if not items:
+            group_lines.append("（无）")
+        else:
+            for it in items:
+                link_part = ""
+                rp = it.get("report_path") or ""
+                if rp:
+                    link_part = f" [→]({Path(rp).name})"
+                group_lines.append(
+                    f"- {it.get('symbol', '')} {it.get('name', '')}"
+                    f"（风险等级：{it.get('risk_level', '不足以判断')}）{link_part}"
+                )
+        group_lines.append("")
+    grouped_md = "\n".join(group_lines)
+
+    # ---------- 失败标的 ----------
+    if fail_items:
+        fail_rows = ["| 代码 | 错误原因 |", "|------|---------|"]
+        for it in fail_items:
+            err = (it.get("error") or "").replace("|", "/")
+            fail_rows.append(f"| {it.get('symbol', '')} | {err} |")
+        fail_md = "\n".join(fail_rows)
+    else:
+        fail_md = "（本次批次全部成功，无失败标的）"
+
+    md = f"""# A股批量投研汇总（只读 / 研究用途）
+
+> 本汇总由 AI 多智能体只读分析系统生成，**仅供研究学习，不构成投资建议，不保证收益，不含任何买卖指令，不执行任何交易**。
+
+## 〇、本次批次元信息
+- 标的数量：{len(results)}（成功 {len(ok_items)} / 失败 {len(fail_items)}）
+- **分析模型**：{MODEL_NAME}（LLM；多智能体编排，结论非交易指令）
+- 启动时间：{started_at}
+- 完成时间：{finished_at}
+- 总耗时：{duration_sec:.1f} 秒（约 {duration_sec/60:.1f} 分钟）
+- 缓存：{'启用（AKShare info/financials/news 按日缓存）' if cache_enabled else '禁用（本次强制重抓）'}
+
+## 一、结论汇总（按严格度排序）
+
+{table_md}
+
+## 二、按结论分组
+
+{grouped_md}
+
+## 三、失败标的
+
+{fail_md}
+
+## 免责声明
+本汇总为 AI 自动生成的只读研究材料，所用数据来自 AKShare 公开接口，可能存在滞后、缺失或错误。
+报告不构成任何投资、申购、买卖建议，不预测涨跌，不承诺收益。投资有风险，决策请独立判断并自担风险。
+"""
+    return md
+
+
+def save_batch_summary_to_file(content: str) -> Path:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = REPORTS_DIR / f"A股_批量汇总_{ts}.md"
+    path.write_text(content, encoding="utf-8")
+    return path
