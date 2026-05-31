@@ -12,3 +12,5 @@ python-dotenv>=1.0.0
 
 # 可选：Streamlit UI（只跑 CLI 可不装）
 streamlit>=1.30.0
+# Streamlit 图表（K 线 / MACD / 资金流）；CLI 不依赖
+plotly>=5.20.0
