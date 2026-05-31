@@ -109,3 +109,31 @@ def save_snapshot(symbol: str, market_data: Dict) -> Path:
 def load_snapshot(path: Union[str, Path]) -> Dict:
     """读 snapshot.json 返回完整 payload dict。"""
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def load_market_data_from_snapshot(path: Union[str, Path]):
+    """从 snapshot.json 还原 market_data dict（含 DataFrame）+ payload 元信息。
+
+    返回 (market_data, payload)：
+    - market_data["history"] 从 {records, attrs} 还原为 pd.DataFrame，attrs 写回
+    - 其它字段透传
+    - payload 含 version / saved_at / symbol 等元信息
+
+    用于 `run.py --replay`：不重抓 AKShare、直接喂给 LLM 流程。
+    """
+    import pandas as pd  # 延迟 import，模块基础功能不强依赖 pandas
+
+    payload = load_snapshot(path)
+    md = dict(payload.get("market_data") or {})
+    history_blob = md.get("history")
+    if isinstance(history_blob, dict) and "records" in history_blob:
+        records = history_blob.get("records") or []
+        df = pd.DataFrame(records)
+        attrs = history_blob.get("attrs") or {}
+        # DataFrame.attrs 必须逐字段赋（不能 df.attrs = dict）
+        for k, v in (attrs or {}).items():
+            df.attrs[k] = v
+        md["history"] = df
+    elif history_blob is None or (isinstance(history_blob, dict) and not history_blob):
+        md["history"] = pd.DataFrame()
+    return md, payload

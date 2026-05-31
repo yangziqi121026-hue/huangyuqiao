@@ -9,23 +9,35 @@
     python run.py --pool pool.txt
     python run.py --pool pool.txt --depth 快速 --no-cache
 
+重放用法（复现 / A-B 模型对比 / 改 prompt 后验证）：
+    python run.py --replay reports/A股_600519_xxxxx.snapshot.json
+
 说明：
 - 只读分析，不下单、不接 live。
 - 没有 OPENAI_API_KEY 时自动进入 mock 模式（仍可跑通全流程）。
-- 单股和批量互斥：要么传 symbol，要么传 --pool。
+- symbol / --pool / --replay 三选一互斥。
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+
+# 在任意控制台编码（如 Windows GBK）下都不崩——报告 md 含 emoji（🔁 等）时
+# 直接 print 到 GBK stdout 会 UnicodeEncodeError。优先切 UTF-8，沿用 run_tests.py 模式。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from src import config
 from src.batch import run_batch
 from src.pool import read_pool_file
 from src.report_generator import save_report_to_file
 from src.snapshot import save_snapshot
-from src.workflow import run_analysis
+from src.workflow import run_analysis, run_analysis_replay
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -35,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="A股 6 位代码，如 600519（批量模式 --pool 时不传）")
     parser.add_argument("--pool", default="",
                         help="批量模式：从文件读 6 位代码（一行一个，# 之后为注释）")
+    parser.add_argument("--replay", default="",
+                        help="重放模式：从 snapshot.json 加载 market_data 重跑 LLM"
+                             "（不抓 AKShare，用于复现 / A-B 模型对比 / 改 prompt 后验证）")
     parser.add_argument("--depth", default="标准", choices=config.ANALYSIS_DEPTHS)
     parser.add_argument("--period", default="日线", choices=list(config.PERIOD_MAP.keys()))
     parser.add_argument("--adjust", default="前复权", choices=list(config.ADJUST_MAP.keys()))
@@ -137,12 +152,47 @@ def _run_pool(args) -> int:
     return 0 if ok_count > 0 else 1
 
 
+def _run_replay(args) -> int:
+    print(f"[开始] Replay 模式：从快照 {args.replay} 重跑 LLM（不抓 AKShare） ...")
+
+    def on_stage(stage_id, stage_zh, ctx):
+        print(f"  - {stage_zh}")
+
+    result = run_analysis_replay(
+        snapshot_path=args.replay,
+        period_zh=args.period,
+        adjust_zh=args.adjust,
+        depth=args.depth,
+        on_stage=on_stage,
+    )
+
+    if not result["ok"]:
+        print(f"[失败] {result['error']}")
+        return 1
+
+    print("\n" + "=" * 60)
+    print(result["final_report"])
+    print("=" * 60)
+    print(f"[结论] {result['conclusion']}　[风险等级] {result['risk_level']}")
+
+    if not args.no_save:
+        # replay 报告也落地，文件名沿用 symbol（来自 snapshot）
+        symbol = (result.get("market_data") or {}).get("symbol", "replay")
+        path = save_report_to_file(symbol, result["final_report"])
+        print(f"[已保存] {path}（replay 来源：{Path(args.replay).name}）")
+    return 0
+
+
 def main():
     args = _build_parser().parse_args()
 
-    # 互斥校验：必须二选一
-    if bool(args.symbol) == bool(args.pool):
-        print("[错误] 必须二选一：传单只代码（如 `run.py 600519`）或 `--pool pool.txt`")
+    # 三选一互斥：symbol / --pool / --replay
+    modes = [bool(args.symbol), bool(args.pool), bool(args.replay)]
+    if sum(modes) != 1:
+        print("[错误] 必须三选一：")
+        print("  - 单股：`run.py 600519`")
+        print("  - 批量：`run.py --pool pool.txt`")
+        print("  - 重放：`run.py --replay reports/A股_xxx.snapshot.json`")
         sys.exit(2)
 
     if args.no_cache:
@@ -153,7 +203,9 @@ def main():
 
     _print_config_line()
 
-    if args.pool:
+    if args.replay:
+        sys.exit(_run_replay(args))
+    elif args.pool:
         sys.exit(_run_pool(args))
     else:
         sys.exit(_run_single(args))

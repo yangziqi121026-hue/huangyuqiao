@@ -204,6 +204,40 @@ class TestSmokeStrictestConclusionWins(unittest.TestCase):
         self.assertNotIn("最终结论：观察**", md)
 
 
+class TestSmokeReplayBanner(unittest.TestCase):
+    """replay 模式头部必须明示 "Replay 模式" 提示 + 原快照保存时间，
+    避免用户把重跑当成新抓。非 replay 时不应出现此 banner。"""
+
+    def test_no_banner_when_not_replay(self):
+        md = build_final_report(
+            market_data=_mock_market_data(),
+            agent_outputs=_mock_agent_outputs_with_forbidden_words(),
+            conflict=_mock_conflict_no_conflict(),
+            dq_assessment=_mock_dq(),
+        )
+        self.assertNotIn("Replay 模式", md)
+        self.assertNotIn("🔁", md)
+
+    def test_banner_present_when_replay(self):
+        mkt = _mock_market_data()
+        mkt["_replay_from"] = "reports/A股_600519_20260531_133149.snapshot.json"
+        mkt["_replay_saved_at"] = "2026-05-31 13:31:49"
+        md = build_final_report(
+            market_data=mkt,
+            agent_outputs=_mock_agent_outputs_with_forbidden_words(),
+            conflict=_mock_conflict_no_conflict(),
+            dq_assessment=_mock_dq(),
+        )
+        self.assertIn("Replay 模式", md)
+        self.assertIn("🔁", md)
+        # 文件名（非绝对路径）出现
+        self.assertIn("A股_600519_20260531_133149.snapshot.json", md)
+        # 原快照保存时间出现，让用户知道数据时点
+        self.assertIn("2026-05-31 13:31:49", md)
+        # 报告其它字段照常生成
+        self.assertIn("最终结论：", md)
+
+
 class TestSmokeConflictBlockRendered(unittest.TestCase):
     """方向冲突时报告头部必须明确标注'保留分歧、不给出唯一结论'。"""
 

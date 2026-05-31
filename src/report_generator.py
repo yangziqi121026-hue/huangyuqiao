@@ -155,10 +155,20 @@ def build_final_report(
     financial_period = get_financial_period(market_data) or "不足以判断"
     source_summary = summarize_sources(market_data)
 
+    # Replay 模式标识：从 snapshot 重跑时，明确告知用户数据不是新抓的
+    replay_banner = ""
+    replay_from = market_data.get("_replay_from")
+    if replay_from:
+        replay_saved_at = market_data.get("_replay_saved_at", "未知")
+        replay_banner = (
+            f"\n> 🔁 **Replay 模式**：本次报告由快照 `{Path(replay_from).name}` "
+            f"重跑 LLM 部分生成，数据并非新抓（原抓取时间 {replay_saved_at}）。\n"
+        )
+
     md = f"""# A股个股投研分析报告（只读 / 研究用途）
 
 > 本报告由 AI 多智能体只读分析系统生成，**仅供研究学习，不构成投资建议，不保证收益，不含任何买卖指令，不执行任何交易**。
-
+{replay_banner}
 ## 〇、报告元信息
 - 市场：{market_data.get('market', '')}（仅 A 股）
 - 股票代码：{market_data.get('symbol', '')}

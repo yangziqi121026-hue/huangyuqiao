@@ -23,6 +23,7 @@ import pandas as pd  # noqa: E402
 from src import snapshot as snap_module  # noqa: E402
 from src.snapshot import (  # noqa: E402
     SNAPSHOT_VERSION,
+    load_market_data_from_snapshot,
     load_snapshot,
     market_data_to_jsonable,
     save_snapshot,
@@ -186,6 +187,74 @@ class TestSaveLoadRoundtrip(unittest.TestCase):
         payload = load_snapshot(path)
         # datetime → isoformat 字符串
         self.assertIn("2026-05-31T12:00:00", payload["market_data"]["some_dt"])
+
+
+class TestLoadMarketDataFromSnapshot(unittest.TestCase):
+    """replay 路径：snapshot → market_data 还原（含 DataFrame）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._orig_reports = snap_module.REPORTS_DIR
+        snap_module.REPORTS_DIR = Path(self.tmp)
+
+    def tearDown(self):
+        snap_module.REPORTS_DIR = self._orig_reports
+        for f in Path(self.tmp).iterdir():
+            try:
+                f.unlink()
+            except Exception:
+                pass
+        try:
+            os.rmdir(self.tmp)
+        except Exception:
+            pass
+
+    def test_roundtrip_history_back_to_dataframe(self):
+        md = _sample_market_data()
+        path = save_snapshot("600519", md)
+        loaded_md, payload = load_market_data_from_snapshot(path)
+        # history 必须是 DataFrame（不是 dict）
+        self.assertIsInstance(loaded_md["history"], pd.DataFrame)
+        self.assertEqual(len(loaded_md["history"]), 3)
+        self.assertEqual(loaded_md["history"]["close"].iloc[-1], 102.8)
+        self.assertEqual(loaded_md["history"]["date"].iloc[0], "2026-05-27")
+
+    def test_history_attrs_restored(self):
+        md = _sample_market_data()
+        path = save_snapshot("600519", md)
+        loaded_md, _ = load_market_data_from_snapshot(path)
+        self.assertEqual(loaded_md["history"].attrs.get("source"),
+                         "stock_zh_a_hist（东财）")
+        self.assertFalse(loaded_md["history"].attrs.get("is_mock"))
+
+    def test_other_fields_unchanged(self):
+        md = _sample_market_data()
+        path = save_snapshot("600519", md)
+        loaded_md, _ = load_market_data_from_snapshot(path)
+        self.assertEqual(loaded_md["symbol"], "600519")
+        self.assertEqual(loaded_md["name"], "贵州茅台")
+        self.assertEqual(loaded_md["info"]["pe"], 25.6)
+        self.assertEqual(loaded_md["financials"]["latest_period"], "20260331")
+
+    def test_payload_envelope_returned(self):
+        md = _sample_market_data()
+        path = save_snapshot("600519", md)
+        _, payload = load_market_data_from_snapshot(path)
+        self.assertEqual(payload["version"], SNAPSHOT_VERSION)
+        self.assertEqual(payload["symbol"], "600519")
+        self.assertIn("saved_at", payload)
+
+    def test_empty_history_blob_handled(self):
+        # 手工写一个 history 为空的 snapshot
+        empty_payload = {
+            "version": 1, "saved_at": "x", "symbol": "600519",
+            "market_data": {"symbol": "600519", "history": {"records": [], "attrs": {}}},
+        }
+        p = Path(self.tmp) / "empty.snapshot.json"
+        p.write_text(json.dumps(empty_payload, ensure_ascii=False), encoding="utf-8")
+        loaded_md, _ = load_market_data_from_snapshot(p)
+        self.assertIsInstance(loaded_md["history"], pd.DataFrame)
+        self.assertTrue(loaded_md["history"].empty)
 
 
 class TestUtf8Encoding(unittest.TestCase):
