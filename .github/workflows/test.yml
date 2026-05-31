@@ -1,0 +1,38 @@
+name: tests
+
+# 只读项目的安全/逻辑回归。146 用例不联网、不调 LLM、不依赖 akshare 真实接口，
+# 跑的是纯逻辑（指标 / 冲突对齐 / 结论抽取 / 禁词安全网 / 缓存 / 批量编排）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 并发控制：同一分支后推会取消前一次未完成的 run，省 Action 分钟数
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: python run_tests.py
