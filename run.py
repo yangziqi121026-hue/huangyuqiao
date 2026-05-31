@@ -24,6 +24,7 @@ from src import config
 from src.batch import run_batch
 from src.pool import read_pool_file
 from src.report_generator import save_report_to_file
+from src.snapshot import save_snapshot
 from src.workflow import run_analysis
 
 
@@ -40,6 +41,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--start", default="", help="开始日期 YYYY-MM-DD")
     parser.add_argument("--end", default="", help="结束日期 YYYY-MM-DD")
     parser.add_argument("--no-save", action="store_true", help="不落地 reports/")
+    parser.add_argument("--no-snapshot", action="store_true",
+                        help="不落 market_data 快照 JSON（默认会落，用于复现 / A-B 对比）")
     parser.add_argument("--no-cache", action="store_true",
                         help="禁用 AKShare 缓存（强制重抓 info/financials/news）")
     parser.add_argument("--quiet-cache", action="store_true",
@@ -84,6 +87,12 @@ def _run_single(args) -> int:
     if not args.no_save:
         path = save_report_to_file(args.symbol, result["final_report"])
         print(f"[已保存] {path}")
+        if not args.no_snapshot:
+            try:
+                sp = save_snapshot(args.symbol, result.get("market_data") or {})
+                print(f"[快照] {sp.name}（可用于复现 / A-B 模型对比）")
+            except Exception as e:
+                print(f"[快照] 落地失败：{e}（不影响报告，已忽略）")
     return 0
 
 
@@ -114,6 +123,7 @@ def _run_pool(args) -> int:
         depth=args.depth,
         save_individual=not args.no_save,
         save_summary=not args.no_save,
+        save_snapshots=not args.no_save and not args.no_snapshot,
         on_progress=on_progress,
     )
 

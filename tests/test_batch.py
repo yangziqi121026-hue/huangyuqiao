@@ -90,6 +90,14 @@ class TestExtractBatchItem(unittest.TestCase):
 
 
 class TestRunBatchOrchestration(unittest.TestCase):
+    def setUp(self):
+        # mock save_snapshot 避免测试期间往真实 reports/ 写文件
+        self._snap_patch = patch("src.batch.save_snapshot")
+        self._snap_patch.start()
+
+    def tearDown(self):
+        self._snap_patch.stop()
+
     def test_mixed_success_and_failure(self):
         def fake_run_analysis(symbol, **kwargs):
             if symbol == "999999":

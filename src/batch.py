@@ -19,6 +19,7 @@ from .report_generator import (
     save_batch_summary_to_file,
     save_report_to_file,
 )
+from .snapshot import save_snapshot
 from .workflow import run_analysis
 
 
@@ -61,6 +62,7 @@ def run_batch(
     depth: str = "标准",
     save_individual: bool = True,
     save_summary: bool = True,
+    save_snapshots: bool = True,
     on_progress: Optional[Callable[[int, int, str, Dict], None]] = None,
 ) -> Dict:
     """跑一批股票，返回汇总字典。
@@ -99,6 +101,11 @@ def run_batch(
                     report_path = str(p)
                 except Exception:
                     pass  # 落盘失败不影响汇总
+            if res.get("ok") and save_snapshots:
+                try:
+                    save_snapshot(symbol, res.get("market_data") or {})
+                except Exception:
+                    pass  # 快照失败不影响汇总
         except Exception as e:
             res = {"ok": False, "error": f"未捕获异常：{e}"}
         item = _extract_batch_item(symbol, res, time.time() - t0, report_path)

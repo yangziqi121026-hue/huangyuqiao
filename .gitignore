@@ -5,6 +5,7 @@ data/*.json
 data/*.db
 data/*.db-journal
 reports/*.md
+reports/*.json
 # 用户私人股票池（pool.txt.example 是模板，要入库）
 pool.txt
 .venv/
