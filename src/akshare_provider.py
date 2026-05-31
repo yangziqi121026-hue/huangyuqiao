@@ -771,22 +771,34 @@ def _cached_safe_call(fn, symbol, dim, default=None, errors=None, label=""):
     命中：直接返回缓存 payload，跳过 _safe_call（不触发 sleep）。
     未命中：走 _safe_call 抓真实数据，结果非空且非 default 时 put 入缓存。
     缓存层任何异常都不影响主流程（fail-open）。
+
+    `CACHE_VERBOSE=True`（默认）时每次命中/未命中打一行：
+        [cache] info hit (600519)
+        [cache] financials miss → fetched (000001)
+    用户能直观看到缓存价值；`--quiet-cache` 或 `CACHE_VERBOSE=false` 关闭。
     """
     if config.CACHE_ENABLED:
         try:
             cache = get_cache(config.CACHE_DB_PATH)
             hit = cache.get(symbol, dim)
             if hit is not None:
+                if config.CACHE_VERBOSE:
+                    print(f"[cache] {dim} hit ({symbol})")
                 return hit
         except Exception:
             pass  # 缓存读失败降级走真抓
     result = _safe_call(fn, symbol, default=default, errors=errors, label=label)
-    if config.CACHE_ENABLED and result is not None and result != default:
-        try:
-            cache = get_cache(config.CACHE_DB_PATH)
-            cache.put(symbol, dim, result)
-        except Exception:
-            pass  # 缓存写失败不影响返回
+    if config.CACHE_ENABLED:
+        if result is not None and result != default:
+            try:
+                cache = get_cache(config.CACHE_DB_PATH)
+                cache.put(symbol, dim, result)
+                if config.CACHE_VERBOSE:
+                    print(f"[cache] {dim} miss → fetched ({symbol})")
+            except Exception:
+                pass  # 缓存写失败不影响返回
+        elif config.CACHE_VERBOSE:
+            print(f"[cache] {dim} miss → fetched but not cached ({symbol})")
     return result
 
 

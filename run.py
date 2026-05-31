@@ -42,6 +42,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-save", action="store_true", help="不落地 reports/")
     parser.add_argument("--no-cache", action="store_true",
                         help="禁用 AKShare 缓存（强制重抓 info/financials/news）")
+    parser.add_argument("--quiet-cache", action="store_true",
+                        help="不打 [cache] 命中/未命中日志（批量跑可能 noisy）")
     return parser
 
 
@@ -136,6 +138,8 @@ def main():
     if args.no_cache:
         # 仅本次进程禁用，不写 .env
         config.CACHE_ENABLED = False
+    if args.quiet_cache:
+        config.CACHE_VERBOSE = False
 
     _print_config_line()
 

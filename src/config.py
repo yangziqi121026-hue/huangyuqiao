@@ -74,6 +74,9 @@ CACHE_ENABLED = _get_bool("CACHE_ENABLED", default=True)
 CACHE_DB_PATH = DATA_DIR / "cache.db"
 # 抓取间隔（秒），防止对 AKShare 接口短时间连续打。仅在缓存未命中走真实调用时生效。
 AKSHARE_FETCH_SLEEP_SEC = float(os.getenv("AKSHARE_FETCH_SLEEP_SEC", "0.3"))
+# 每次缓存命中/未命中打一行 `[cache] {dim} hit/miss → fetched ({symbol})`，
+# 让用户能看到缓存价值。批量跑可能 noisy，用 --quiet-cache 关闭。
+CACHE_VERBOSE = _get_bool("CACHE_VERBOSE", default=True)
 
 
 def get_settings_summary() -> dict:
@@ -89,4 +92,5 @@ def get_settings_summary() -> dict:
         "cache_enabled": CACHE_ENABLED,
         "cache_db_path": str(CACHE_DB_PATH),
         "akshare_fetch_sleep_sec": AKSHARE_FETCH_SLEEP_SEC,
+        "cache_verbose": CACHE_VERBOSE,
     }
